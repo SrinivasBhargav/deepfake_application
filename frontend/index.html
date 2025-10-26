@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>srinivas bhargav pulipati deep fake application</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+
+  <!-- minimal styling -->
+  <style>
+    :root { --fg:#111; --muted:#666; --brand:#0b5fff; --ok:#0f9d58; --warn:#fbbc05; --bad:#d93025; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:var(--fg); background:#fafafa; }
+    .wrap { max-width: 760px; margin: 40px auto; }
+    .card { background:#fff; border:1px solid #e5e5e5; border-radius:10px; padding:20px 28px; box-shadow:0 2px 20px rgba(0,0,0,.03); }
+    h1 { text-align:center; margin-bottom:22px; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .btn { background:var(--brand); color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .muted { color:var(--muted); }
+    .bar { width:100%; height:10px; border-radius:6px; background:#eee; overflow:hidden; }
+    .bar > div { height:100%; width:0%; background:var(--brand); transition:width .25s ease; }
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-top:10px; }
+    pre { background:#0d1117; color:#d1d7e0; padding:10px; border-radius:8px; overflow:auto; }
+
+    /* modal */
+    .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; }
+    .modal { background:#fff; width:min(560px, 92vw); border-radius:12px; padding:18px 20px; box-shadow:0 16px 60px rgba(0,0,0,.25); }
+    .modal h3 { margin:6px 0 12px; }
+    .modal .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px 14px; }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; font-weight:600; }
+    .pill.ok { background: #e6f4ea; color:#0f9d58; }
+    .pill.warn { background: #fff6e6; color:#b77900; }
+    .pill.bad { background: #fce8e6; color:#d93025; }
+    .modal .actions { margin-top:12px; display:flex; gap:10px; justify-content:flex-end; }
+    .link { color:var(--brand); text-decoration:underline; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>srinivas bhargav pulipati deep fake application</h1>
+    <div class="card">
+      <div class="row">
+        <input id="file" type="file" />
+        <button id="btn" class="btn">Upload &amp; Verify</button>
+      </div>
+
+      <p class="muted">API: <span id="apiBase">http://localhost:8000</span></p>
+
+      <div class="bar" aria-hidden="true"><div id="bar"></div></div>
+      <div id="status" class="status muted">Idle.</div>
+
+      <div id="debug" style="margin-top:12px; display:none">
+        <p class="muted">Debug output</p>
+        <pre id="out"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modalBg" class="modal-bg" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h3 id="modalTitle">Verification Result</h3>
+      <div class="grid" id="modalGrid"></div>
+      <div class="actions">
+        <button id="copyBtn" class="btn" title="Copy JSON to clipboard">Copy JSON</button>
+        <button id="closeBtn" class="btn" style="background:#444">Close</button>
+      </div>
+      <div style="margin-top:10px">
+        <span class="muted">Result URL: </span><a id="resultLink" class="link" href="#" target="_blank" rel="noopener">open</a>
+      </div>
+      <div id="jsonBox" style="margin-top:10px; display:none"><pre id="jsonPre"></pre></div>
+    </div>
+  </div>
+
+  <script>
+    const api = "http://localhost:8000";   // change if your API runs elsewhere
+    document.getElementById("apiBase").textContent = api;
+
+    const fileEl = document.getElementById("file");
+    const btn = document.getElementById("btn");
+    const bar = document.getElementById("bar");
+    const statusEl = document.getElementById("status");
+    const out = document.getElementById("out");
+    const dbg = document.getElementById("debug");
+
+    const modalBg = document.getElementById("modalBg");
+    const modalGrid = document.getElementById("modalGrid");
+    const resultLink = document.getElementById("resultLink");
+    const copyBtn = document.getElementById("copyBtn");
+    const closeBtn = document.getElementById("closeBtn");
+    const jsonBox = document.getElementById("jsonBox");
+    const jsonPre = document.getElementById("jsonPre");
+
+    closeBtn.onclick = () => modalBg.style.display = "none";
+    copyBtn.onclick = async () => {
+      await navigator.clipboard.writeText(jsonPre.textContent || "");
+      copyBtn.textContent = "Copied!";
+      setTimeout(()=>copyBtn.textContent="Copy JSON", 1200);
+    };
+
+    function setBar(pct){ bar.style.width = Math.max(0, Math.min(100, pct)) + "%"; }
+
+    function verdict(score){
+      if (score >= 0.7) return {label:"Likely Deepfake", cls:"bad"};
+      if (score >= 0.4) return {label:"Suspicious", cls:"warn"};
+      return {label:"Likely Authentic", cls:"ok"};
+    }
+
+    function showModal(result, meta){
+      const v = verdict(result.score ?? 0);
+      modalGrid.innerHTML = `
+        <div class="muted">Filename</div><div>${meta.name || "-"}</div>
+        <div class="muted">Type</div><div>${meta.type || "-"}</div>
+        <div class="muted">Frames Analyzed</div><div>${result.n_frames ?? "-"}</div>
+        <div class="muted">Score (0–1)</div><div><strong>${(result.score ?? 0).toFixed(2)}</strong></div>
+        <div class="muted">Verdict</div>
+        <div><span class="pill ${v.cls}">${v.label}</span></div>
+      `;
+      jsonPre.textContent = JSON.stringify(result, null, 2);
+      jsonBox.style.display = "block";
+      modalBg.style.display = "flex";
+    }
+
+    async function uploadAndVerify(){
+      const f = fileEl.files[0];
+      if(!f){ alert("Choose a file first."); return; }
+      btn.disabled = true; setBar(10); statusEl.textContent = "Uploading...";
+      dbg.style.display = "block"; out.textContent = "";
+
+      try {
+        const form = new FormData(); form.append("file", f);
+        // Upload
+        const res = await fetch(api + "/v1/jobs/upload", { method:"POST", body: form });
+        const text = await res.text(); // read as text first
+        let data; try { data = JSON.parse(text); } catch (e) {
+          statusEl.textContent = "Upload failed (non-JSON response).";
+          out.textContent = "Response:\n" + text;
+          btn.disabled = false; return;
+        }
+        if(!data.job_id){ statusEl.textContent = "Upload error"; out.textContent = JSON.stringify(data,null,2); btn.disabled=false; return; }
+
+        setBar(40);
+        statusEl.textContent = "Queued. Job: " + data.job_id;
+
+        // Poll status
+        let tries = 0, job;
+        while(tries < 120){ // ~2 min
+          await new Promise(r => setTimeout(r, 1000));
+          const sres = await fetch(api + "/v1/jobs/" + data.job_id);
+          job = await sres.json();
+          statusEl.textContent = "Status: " + (job.status || "UNKNOWN");
+          setBar(40 + Math.min(55, tries * 0.6));
+          if(["SUCCESS","completed","FAILED","ERROR"].includes((job.status||"").toUpperCase())) break;
+          tries++;
+        }
+
+        // Fetch result
+        const rurl = api + "/v1/jobs/" + data.job_id + "/result";
+        resultLink.href = rurl;
+        const rres = await fetch(rurl);
+        const rtext = await rres.text();
+        let result;
+        try { result = JSON.parse(rtext); }
+        catch(e){ statusEl.textContent = "Result not JSON"; out.textContent = rtext; btn.disabled=false; return; }
+
+        setBar(100);
+        statusEl.textContent = "Completed";
+        showModal(result, { name:f.name, type:f.type });
+
+      } catch(err){
+        statusEl.textContent = "Error: " + (err?.message || err);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById("btn").addEventListener("click", uploadAndVerify);
+  </script>
+</body>
+</html>

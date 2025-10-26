@@ -1,0 +1,23 @@
+
+# API
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+
+# Messaging / state
+celery[redis]
+redis
+
+# Storage
+minio
+boto3  # (optional, not required but handy)
+
+# Image/Video & ML
+opencv-python-headless
+numpy
+Pillow
+onnxruntime
+
+# Utils
+python-dotenv
